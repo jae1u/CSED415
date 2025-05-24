@@ -13,6 +13,7 @@ import queue
 from typing import Optional, cast
 
 from proxy import dns
+from proxy.config import conf
 from proxy.interface import Request, Response
 
 # TODO: support POST request
@@ -175,7 +176,6 @@ def quic_loop(
                     b':scheme': b'https',
                     b':authority': url.hostname.encode(),
                     b':path': path.encode(),
-                    # b'host': url.hostname.encode(),
                     b'user-agent': b'snic/0.1',
                     b'accept': b'*/*',
                     **req.header
@@ -263,11 +263,13 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     # resolve hostname into ip
     url = urlparse(req.url)
     assert url.hostname is not None
-    ip = asyncio.run(dns.resolve(url.hostname, ("1.1.1.1", 53), proxy_config))
+    dns_server_config = (conf.dns_server_addr, conf.dns_server_port)
+    ip = asyncio.run(dns.resolve(url.hostname, dns_server_config, proxy_config))
+    port = 443 if url.port is None else url.port
 
     # fetch resource using SNIC
     assert url.hostname is not None
-    conn = SNICConnection(url.hostname, (ip, 443), proxy_config)
+    conn = SNICConnection(url.hostname, (ip, port), proxy_config)
     asyncio.run(conn.connect())
     res = asyncio.run(conn.fetch(req))
     assert isinstance(res, Response)

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
 import socket
 import ssl
 import threading
 from itertools import count
 from http import HTTPStatus
+from proxy import config
+from proxy.config import conf
 from proxy.certs import generate_cert
 from proxy.interface import Request as Request_t, Response as Response_t
 from proxy.fetch_adaptive import fetch
@@ -100,7 +103,7 @@ class ProxyHandler(threading.Thread):
             req_id = next(ProxyHandler.req_counter)
             headers = {k.encode(): v.encode() for k, v in headers.items()}
             request = Request_t(method=method, url=url, header=headers, req_id=req_id, body=body)
-            response = fetch(request, ("localhost", 10808))
+            response = fetch(request, (conf.proxy_addr, conf.proxy_port))
 
             # response 후처리
             # transfer-encoding 헤더가 설정되어 있을 경우 브라우저에서 오류 발생
@@ -145,17 +148,13 @@ class ProxyServer:
     """
     프록시 서버: 소켓 생성/리스닝 및 클라이언트 연결을 ProxyHandler로 처리.
     """
-    def __init__(self, host: str, port: int, certfile: str, keyfile: str):
-        self.host = host
-        self.port = port
-        self.certfile = certfile
-        self.keyfile = keyfile
+    def __init__(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.server_socket.bind((self.host, self.port))
+        self.server_socket.bind((conf.host, conf.port))
         self.server_socket.listen(5)
-        print(f"Proxy listening on {self.host}:{self.port}")
+        print(f"Proxy listening on {conf.host}:{conf.port}")
 
     def serve_forever(self):
         try:
@@ -177,10 +176,17 @@ class ProxyServer:
         finally:
             self.server_socket.close()
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog='snic_proxy',
+        description='An SNI-concealing https proxy server'
+    )
+    parser.add_argument('--config', help='Path to a config file (.toml)', required=False)
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    HOST = "127.0.0.1"
-    PORT = 11556
-    CERT_FILE = "./proxy/rootCA.crt"  # 서버 인증서 경로
-    KEY_FILE = "./proxy/rootCA.key"    # 서버 개인키 경로
-    proxy = ProxyServer(HOST, PORT, CERT_FILE, KEY_FILE)
+    args = parse_args()
+    config.configure_from_file(args.config)
+    # print(conf)
+    proxy = ProxyServer()
     proxy.serve_forever()

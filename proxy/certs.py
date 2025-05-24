@@ -2,6 +2,8 @@ import os
 import subprocess
 from string import Template
 
+from proxy.config import conf
+
 def generate_cert(domain):
     # Configs
     key_path = f"proxy/certs/{domain}.key"
@@ -45,7 +47,7 @@ DNS.1 = $domain
     # Certificate
     subprocess.run([
         "openssl", "x509", "-req", "-in", csr_path,
-        "-CA", "./proxy/rootCA.crt", "-CAkey", "./proxy/rootCA.key",
+        "-CA", conf.cert_file, "-CAkey", conf.key_file,
         "-CAcreateserial", "-out", crt_path,
         "-days", "365", "-sha256",
         "-extfile", config_path, "-extensions", "req_ext"

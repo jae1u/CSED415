@@ -5,6 +5,8 @@ import h11
 from proxy import dns
 from typing import cast
 from urllib.parse import urlparse
+
+from proxy.config import conf
 from proxy.interface import Request, Response
 
 
@@ -14,12 +16,14 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     # resolve hostname into ip
     url = urlparse(req.url)
     assert url.hostname is not None
-    ip = asyncio.run(dns.resolve(url.hostname, ("1.1.1.1", 53), proxy_config))
+    dns_server_config = (conf.dns_server_addr, conf.dns_server_port)
+    ip = asyncio.run(dns.resolve(url.hostname, dns_server_config, proxy_config))
+    port = 443 if url.port is None else url.port
     
     # prepare socket and connection
     ctx = ssl.create_default_context()
     sock = socks.create_connection(
-        (ip, 443), 
+        (ip, port), 
         proxy_type=socks.SOCKS5, 
         proxy_addr=proxy_config[0], 
         proxy_port=proxy_config[1]
