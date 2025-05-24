@@ -1,0 +1,12 @@
+cd ./proxy
+openssl genrsa -out rootCA.key 2048
+openssl req -x509 -new -nodes -key rootCA.key -sha256 -days 3650 \
+  -out rootCA.crt \
+  -subj "/C=KR/ST=Seoul/O=MyProxy/CN=MyRootCA"
+
+# Browser configuration
+# Settings -> proxy -> manual proxy configuration -> HTTP, HTTPS proxy : localhost:8080
+# Certificate import for rootCA.crt
+# Restart browser (Recommanded)
+# run `python3 proxy.py` to start the proxy server
+# Check if the proxy is working and certificates are trusted by MyProxy. (https://example.com)
