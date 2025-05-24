@@ -1,0 +1,16 @@
+# vscode settings
+.vscode/
+
+# user specific temporary files
+temp/
+tmp/
+
+# python specific temporary files
+__pycache__/
+*.pyc
+
+# generated certificates depending on the environment
+certs/
+rootCA.crt 
+rootCA.key
+rootCA.srl 
