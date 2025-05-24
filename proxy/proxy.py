@@ -8,9 +8,8 @@ from itertools import count
 from http import HTTPStatus
 from proxy.certs import generate_cert
 from proxy.interface import Request as Request_t, Response as Response_t
-from proxy.fetch_proxy import fetch as fetch_proxy
+from proxy.fetch_adaptive import fetch
 
-fetch = fetch_proxy
 
 class ProxyHandler(threading.Thread):
     """
@@ -135,7 +134,7 @@ class ProxyHandler(threading.Thread):
         status_text = HTTPStatus(response.status_code).phrase
         status_line = f"{http_version} {response.status_code} {status_text}\r\n"
         headers = {k.decode(): v.decode() for k, v in response.headers.items()}
-        if 'Content-Length' not in headers:
+        if response.body and 'Content-Length' not in headers:
             headers['Content-Length'] = str(len(response.body))
         header_lines = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
         conn.sendall((status_line + header_lines + "\r\n").encode('utf-8'))
@@ -166,7 +165,7 @@ class ProxyServer:
                 peeked = client_sock.recv(65535, socket.MSG_PEEK).decode(errors='ignore')
                 # print(f"Peeked data: {peeked[:50]}...")  # Peeked data for debugging
                 target = peeked.split(" ")[1]
-                host, port = target.split(":") if ":" in target else (target, 443)
+                host, port = target.split(":", 1) if ":" in target else (target, 443)
                 # print(f"Target host: {host}, port: {port}")
                 cert, key = generate_cert(host)  # 도메인별 인증서 생성
                 # print(f"Handling request for {host}:{port} with cert {cert} and key {key}")

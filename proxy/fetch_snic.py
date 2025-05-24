@@ -10,7 +10,7 @@ from aioquic.h3.connection import H3Connection
 import aioquic.quic.events
 import aioquic.h3.events
 import queue
-from typing import cast
+from typing import Optional, cast
 
 from proxy import dns
 from proxy.interface import Request, Response
@@ -21,6 +21,7 @@ def quic_loop(
     req_q: multiprocessing.Queue, 
     res_q: multiprocessing.Queue,
     evt_connected,
+    evt_migrated,
     evt_terminate,
     hostname: str, 
     dst_addr: tuple[str, int], 
@@ -89,10 +90,14 @@ def quic_loop(
                 terminated = True
             elif isinstance(evt, aioquic.quic.events.HandshakeCompleted):
                 print(f"[event] handshake completed, negotiated protocols: {evt.alpn_protocol}")
-                evt_connected.set()
-                connected = True
+                quic_conn.send_ping(41)
             elif isinstance(evt, aioquic.quic.events.PingAcknowledged):
-                print(f"[event] ping acked")
+                print(f"[event] ping acked, uid={evt.uid}")
+                if evt.uid == 42:
+                    evt_migrated.set()
+                elif evt.uid == 41:
+                    evt_connected.set()
+                    connected = True
             elif isinstance(evt, aioquic.quic.events.StopSendingReceived):
                 print(f"[event] stop sending received")
             elif isinstance(evt, aioquic.quic.events.StreamDataReceived):
@@ -159,7 +164,7 @@ def quic_loop(
                 url = urlparse(req.url)
                 req_map[stream_id] = req
                 
-                # send GET request using stream
+                # prepare request header
                 assert url.hostname is not None
                 if len(url.query) > 0:
                     path = url.path + '?' + url.query
@@ -170,13 +175,22 @@ def quic_loop(
                     b':scheme': b'https',
                     b':authority': url.hostname.encode(),
                     b':path': path.encode(),
-                    b'host': url.hostname.encode(),
+                    # b'host': url.hostname.encode(),
                     b'user-agent': b'snic/0.1',
                     b'accept': b'*/*',
                     **req.header
                 }
+                headers = {k.lower(): v for k, v in headers.items()}    # normalize
+                if b'connection' in headers:
+                    del headers[b'connection']
+                if b'host' in headers:
+                    del headers[b'host']
                 print(headers)
-                h3_conn.send_headers(stream_id, list(headers.items()), end_stream=True)
+                
+                # send GET request using stream
+                h3_conn.send_headers(stream_id, list(headers.items()), end_stream=(req.body is None))
+                if req.body is not None:
+                    h3_conn.send_data(stream_id, req.body, end_stream=True)
                 print(f"{req.method} {req.url} (stream id: {stream_id})")
             except queue.Empty:
                 pass
@@ -185,6 +199,7 @@ def quic_loop(
         if connected and not migrated:
             migrated = True
             print("===== migrated =====")
+            quic_conn.send_ping(42)
 
         # terminate if event is set
         if evt_terminate.is_set():
@@ -197,6 +212,7 @@ class SNICConnection:
         self.req_q = multiprocessing.Queue()
         self.res_q = multiprocessing.Queue()
         self.evt_connected = multiprocessing.Event()
+        self.evt_migrated = multiprocessing.Event()
         self.evt_terminate = multiprocessing.Event()
         self.hostname = hostname
         self.dst_addr = dst_addr
@@ -204,11 +220,12 @@ class SNICConnection:
         self.proc = None
         self.responses: dict[int, Response] = {}    # key: request ID, value: response
     
-    async def connect(self):        
+    async def connect(self, timeout: Optional[float] = None) -> bool:        
         self.proc = multiprocessing.Process(target=quic_loop, args=(
             self.req_q,
             self.res_q,
             self.evt_connected,
+            self.evt_migrated,
             self.evt_terminate,
             self.hostname,
             self.dst_addr,
@@ -216,7 +233,10 @@ class SNICConnection:
             self.proxy_addr[1],
         ))
         self.proc.start()
-        await asyncio.to_thread(lambda: self.evt_connected.wait())
+        return await asyncio.to_thread(lambda: self.evt_connected.wait(timeout))
+
+    async def check_migration(self, timeout: float) -> bool:
+        return await asyncio.to_thread(lambda: self.evt_migrated.wait(timeout))
 
     async def fetch(self, req: Request):
         self.req_q.put(req)
