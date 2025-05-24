@@ -7,41 +7,11 @@ import threading
 from dataclasses import dataclass
 from itertools import count
 from http import HTTPStatus
-from certs import generate_cert
+from proxy.certs import generate_cert
+from proxy.interface import Request as Request_t, Response as Response_t
+from proxy.fetch_proxy import fetch as fetch_proxy
 
-@dataclass
-class Request_t:
-    method: str
-    url: str
-    header: dict
-    req_id: int
-    body: bytes
-
-@dataclass
-class Response_t:
-    status_code: int
-    url: str
-    headers: dict
-    req_id: int
-    body: bytes
-
-def fetch(request: Request_t) -> Response_t:
-    """
-    Dummy fetch: 원 서버와 통신한다고 가정하여 200 OK 응답 반환
-    """
-    print(f"[fetch] Request {request.req_id}: {request.method} {request.url}")
-    body = f"Hello! You requested {request.url}\n".encode('utf-8')
-    headers = {
-        "Content-Type": "text/plain",
-        "Content-Length": str(len(body))
-    }
-    return Response_t(
-        status_code=200,
-        url=request.url,
-        headers=headers,
-        req_id=request.req_id,
-        body=body
-    )
+fetch = fetch_proxy
 
 class ProxyHandler(threading.Thread):
     """
@@ -131,10 +101,15 @@ class ProxyHandler(threading.Thread):
 
             req_id = next(ProxyHandler.req_counter)
             request = Request_t(method=method, url=url, header=headers, req_id=req_id, body=body)
-            response = fetch(request)
+            response = fetch(request, ("localhost", 10808))
+
+            print("!!!")
 
             # 응답 전송
             self._send_response(conn, response, version)
+
+            print("!!!!!!")
+
 
             # 연결 유지 여부 판단 (Connection 헤더)
             connection_header = headers.get('Connection', '').lower()
@@ -208,7 +183,7 @@ class ProxyServer:
 if __name__ == "__main__":
     HOST = "127.0.0.1"
     PORT = 11556
-    CERT_FILE = "rootCA.crt"  # 서버 인증서 경로
-    KEY_FILE = "rootCA.key"    # 서버 개인키 경로
+    CERT_FILE = "./proxy/rootCA.crt"  # 서버 인증서 경로
+    KEY_FILE = "./proxy/rootCA.key"    # 서버 개인키 경로
     proxy = ProxyServer(HOST, PORT, CERT_FILE, KEY_FILE)
     proxy.serve_forever()

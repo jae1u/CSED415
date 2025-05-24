@@ -4,10 +4,10 @@ from string import Template
 
 def generate_cert(domain):
     # Configs
-    key_path = f"certs/{domain}.key"
-    crt_path = f"certs/{domain}.crt"
-    csr_path = f"certs/{domain}.csr"
-    config_path = f"certs/{domain}.cnf"
+    key_path = f"proxy/certs/{domain}.key"
+    crt_path = f"proxy/certs/{domain}.crt"
+    csr_path = f"proxy/certs/{domain}.csr"
+    config_path = f"proxy/certs/{domain}.cnf"
     if os.path.exists(crt_path):
         return key_path, crt_path
     os.makedirs("certs", exist_ok=True)
@@ -45,7 +45,7 @@ DNS.1 = $domain
     # Certificate
     subprocess.run([
         "openssl", "x509", "-req", "-in", csr_path,
-        "-CA", "rootCA.crt", "-CAkey", "rootCA.key",
+        "-CA", "./proxy/rootCA.crt", "-CAkey", "./proxy/rootCA.key",
         "-CAcreateserial", "-out", crt_path,
         "-days", "365", "-sha256",
         "-extfile", config_path, "-extensions", "req_ext"
