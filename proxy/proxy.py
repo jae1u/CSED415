@@ -182,14 +182,14 @@ def parse_args():
         description='An SNI-concealing https proxy server'
     )
     parser.add_argument('--config', help='Path to a config file (.toml)', required=False)
+    parser.add_argument('--loglevel', help='Log level', default='INFO')
     return parser.parse_args()
 
 if __name__ == "__main__":
-    # enable logging
-    logging.basicConfig(level=logging.DEBUG)
-    
-    # set config
+    # configure logging & proxy-wide settings
     args = parse_args()
+    logging.basicConfig(level=args.loglevel)
+    logging.getLogger('quic').setLevel(logging.ERROR)
     config.configure_from_file(args.config)
 
     # start proxy server
