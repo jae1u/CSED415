@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import multiprocessing
 import socket
@@ -16,7 +17,7 @@ from proxy import dns
 from proxy.config import conf
 from proxy.interface import Request, Response
 
-# TODO: support POST request
+logger = logging.getLogger(__name__)
 
 def quic_loop(
     req_q: multiprocessing.Queue, 
@@ -66,7 +67,6 @@ def quic_loop(
                 sock.sendto(data, addr)
             else:
                 sock_proxy.sendto(data, addr)
-            print(f"[>] sent {len(data)} bytes")
 
         # re-arm timer
         t = quic_conn.get_timer()
@@ -83,24 +83,24 @@ def quic_loop(
         # process events
         while (evt := quic_conn.next_event()) is not None:
             if isinstance(evt, aioquic.quic.events.ConnectionIdIssued):
-                print(f"[event] new connection id issued: {evt.connection_id}")
+                logger.debug(f"[event] new connection id issued: {evt.connection_id}")
             elif isinstance(evt, aioquic.quic.events.ConnectionIdRetired):
-                print(f"[event] connection id retired: {evt.connection_id}")
+                logger.debug(f"[event] connection id retired: {evt.connection_id}")
             elif isinstance(evt, aioquic.quic.events.ConnectionTerminated):
-                print(f"[event] connection terminated, reason: {evt.reason_phrase}")
+                logger.debug(f"[event] connection terminated, reason: {evt.reason_phrase}")
                 terminated = True
             elif isinstance(evt, aioquic.quic.events.HandshakeCompleted):
-                print(f"[event] handshake completed, negotiated protocols: {evt.alpn_protocol}")
+                logger.debug(f"[event] handshake completed, negotiated protocols: {evt.alpn_protocol}")
                 quic_conn.send_ping(41)
             elif isinstance(evt, aioquic.quic.events.PingAcknowledged):
-                print(f"[event] ping acked, uid={evt.uid}")
+                logger.debug(f"[event] ping acked, uid={evt.uid}")
                 if evt.uid == 42:
                     evt_migrated.set()
                 elif evt.uid == 41:
                     evt_connected.set()
                     connected = True
             elif isinstance(evt, aioquic.quic.events.StopSendingReceived):
-                print(f"[event] stop sending received")
+                logger.debug(f"[event] stop sending received")
             elif isinstance(evt, aioquic.quic.events.StreamDataReceived):
                 for evt in h3_conn.handle_event(evt):
                     if isinstance(evt, aioquic.h3.events.HeadersReceived):
@@ -115,26 +115,22 @@ def quic_loop(
                             body=None
                         )
                         resp_map[evt.stream_id] = resp
-                        print(f"[event] {resp.url} {resp.status_code}")
 
                         if evt.stream_ended:
                             res_q.put(resp)
-                            print(f"end of stream {evt.stream_id}")
                     elif isinstance(evt, aioquic.h3.events.DataReceived):
                         res = resp_map[evt.stream_id]
                         if res.body is None:
                             res.body = evt.data
                         else:
                             res.body += evt.data
-                        print(f"[event] H3 data {len(evt.data)} bytes received")
 
                         if evt.stream_ended:
                             res_q.put(res)
-                            print(f"end of stream {evt.stream_id}")
                     else:
-                        print(f"unknown H3 event: {evt}")
+                        logging.debug(f"unknown H3 event: {evt}")
             else:
-                print(f"unknown QUIC event: {evt}")
+                logging.debug(f"unknown QUIC event: {evt}")
 
         # receive data from proxy socket
         try:
@@ -142,7 +138,6 @@ def quic_loop(
 
             if data:
                 quic_conn.receive_datagram(data, addr, now=time())
-                print(f"[<*] received {len(data)} bytes (from proxy)")
         except BlockingIOError:
             pass
 
@@ -152,7 +147,6 @@ def quic_loop(
             
             if data:
                 quic_conn.receive_datagram(data, addr, now=time())
-                print(f"[<] received {len(data)} bytes")
         except BlockingIOError:
             pass
                     
@@ -185,20 +179,19 @@ def quic_loop(
                     del headers[b'connection']
                 if b'host' in headers:
                     del headers[b'host']
-                print(headers)
                 
                 # send GET request using stream
                 h3_conn.send_headers(stream_id, list(headers.items()), end_stream=(req.body is None))
                 if req.body is not None:
                     h3_conn.send_data(stream_id, req.body, end_stream=True)
-                print(f"{req.method} {req.url} (stream id: {stream_id})")
+                logging.debug(f"{req.method} {req.url} (stream id: {stream_id})")
             except queue.Empty:
                 pass
 
         # trigger migration once connection is established
         if connected and not migrated:
             migrated = True
-            print("===== migrated =====")
+            logging.debug(f"{hostname}: QUIC connection migrated")
             quic_conn.send_ping(42)
 
         # terminate if event is set
@@ -206,6 +199,7 @@ def quic_loop(
             quic_conn.close()
             terminated = True
 
+    logging.debug(f"{hostname}: QUIC loop terminated")
 
 class SNICConnection:
     def __init__(self, hostname: str, dst_addr: tuple[str, int], proxy_addr: tuple[str, int]):

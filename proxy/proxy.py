@@ -5,6 +5,7 @@ import argparse
 import socket
 import ssl
 import threading
+import logging
 from itertools import count
 from http import HTTPStatus
 from proxy import config
@@ -13,6 +14,7 @@ from proxy.certs import generate_cert
 from proxy.interface import Request as Request_t, Response as Response_t
 from proxy.fetch_adaptive import fetch
 
+logger = logging.getLogger(__name__)
 
 class ProxyHandler(threading.Thread):
     """
@@ -35,7 +37,7 @@ class ProxyHandler(threading.Thread):
         try:
             self.handle_client()
         except Exception as e:
-            print(f"[Error] {e}")
+            logger.log(logging.ERROR, f"[Error] {e}")
         finally:
             self.client_socket.close()
 
@@ -70,12 +72,12 @@ class ProxyHandler(threading.Thread):
                 self.current_host = host
                 conn.sendall(f"{version} 200 Connection Established\r\n\r\n".encode('utf-8'))
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-                print(f"[TLS] Setting up TLS for {host}:{port} with cert {self.certfile} and key {self.keyfile}")
+                logger.log(logging.DEBUG, f"[TLS] Setting up TLS for {host}:{port} with cert {self.certfile} and key {self.keyfile}")
                 context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
                 try:
                     tls_conn = context.wrap_socket(conn, server_side=True)
                 except Exception as e:
-                    print(f"[TLS] Handshake failed: {e}")
+                    logger.log(logging.ERROR, f"[TLS] Handshake failed: {e}")
                     break
                 conn = tls_conn
                 self.is_tls = True
@@ -103,7 +105,10 @@ class ProxyHandler(threading.Thread):
             req_id = next(ProxyHandler.req_counter)
             headers = {k.encode(): v.encode() for k, v in headers.items()}
             request = Request_t(method=method, url=url, header=headers, req_id=req_id, body=body)
+
+            logger.log(logging.INFO, f"> {request.method} {request.url}")
             response = fetch(request, (conf.proxy_addr, conf.proxy_port))
+            logger.log(logging.INFO, f"< {response.status_code} {response.url}")
 
             # response 후처리
             # transfer-encoding 헤더가 설정되어 있을 경우 브라우저에서 오류 발생
@@ -160,15 +165,10 @@ class ProxyServer:
         try:
             while True:
                 client_sock, client_addr = self.server_socket.accept()
-                # print(f"Connection from {client_addr}")
                 peeked = client_sock.recv(65535, socket.MSG_PEEK).decode(errors='ignore')
-                # print(f"Peeked data: {peeked[:50]}...")  # Peeked data for debugging
                 target = peeked.split(" ")[1]
                 host, port = target.split(":", 1) if ":" in target else (target, 443)
-                # print(f"Target host: {host}, port: {port}")
                 cert, key = generate_cert(host)  # 도메인별 인증서 생성
-                # print(f"Handling request for {host}:{port} with cert {cert} and key {key}")
-
                 handler = ProxyHandler(client_sock, client_addr, key, cert)
                 handler.start()
         except KeyboardInterrupt:
@@ -185,8 +185,13 @@ def parse_args():
     return parser.parse_args()
 
 if __name__ == "__main__":
+    # enable logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # set config
     args = parse_args()
     config.configure_from_file(args.config)
-    # print(conf)
+
+    # start proxy server
     proxy = ProxyServer()
     proxy.serve_forever()

@@ -11,8 +11,6 @@ from proxy.interface import Request, Response
 
 
 def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
-    print(f"> {req.method} {req.url}")
-
     # resolve hostname into ip
     url = urlparse(req.url)
     assert url.hostname is not None
@@ -80,7 +78,5 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
         req_id=req.req_id,
         body=bytes().join(body_parts)
     )
-    print(f"< {res.status_code} {res.url}")
-
     return res
 

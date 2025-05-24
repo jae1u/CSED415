@@ -1,8 +1,11 @@
+import logging
 import asyncio
 import socket
 import socks
 from scapy.layers.dns import DNS, DNSQR
 
+
+logger = logging.getLogger(__name__)
 
 class DNSClientProtocol(asyncio.DatagramProtocol):
     def __init__(self, hostname: str, dns_server: tuple[str, int], answer_future: asyncio.Future):
@@ -42,6 +45,7 @@ async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tupl
 
     try:
         ip = await answer_future
+        logger.log(logging.DEBUG, f"resolved {hostname} to {ip}")
     finally:
         transport.close()
     return ip

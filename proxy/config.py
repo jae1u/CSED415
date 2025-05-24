@@ -1,5 +1,8 @@
+import logging
 import tomllib
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Config:
@@ -26,3 +29,5 @@ def configure_from_file(path: str):
     global conf
     for k, v in conf_override.items():
         setattr(conf, k, v)
+
+    logger.log(logging.DEBUG, f"config: {conf}")
