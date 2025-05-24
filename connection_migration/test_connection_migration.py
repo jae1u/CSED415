@@ -12,7 +12,25 @@ from aioquic.quic.connection import QuicConnection
 from aioquic.h3.connection import H3Connection
 import aioquic.quic.events
 import aioquic.h3.events
+import sys
+import getopt
+import os
+import multiprocessing
+import io
+from contextlib import redirect_stdout
 
+SUCCESS_MARKER = "end of stream"
+
+
+def usage():
+    print("Usage: python test_connection_migration.py [--url <URL>]")
+    print("Options:")
+    print("  --url <URL>   Specify the URL to test ")
+    print("                (default: https://www.theguardian.com/international)")
+    print("  --help        Show this help message")
+    print("  --all         Test all URLs in the predefined list")
+    print("                (URLs.txt)")
+    exit(0)
 
 # inputs
 # URL = "https://cloudflare-ech.com/cdn-cgi/trace" # not ok
@@ -32,6 +50,7 @@ import aioquic.h3.events
 # URL = "https://copilot.microsoft.com/" # not ok - unsupported
 # URL = "https://www.wired.com/" # ok (not blocked)
 URL = "https://www.theguardian.com/international"
+
 PROXY_HOST = "localhost"
 PROXY_PORT = 10808
 DNS_ADDR = ("1.1.1.1", 53)
@@ -215,7 +234,108 @@ def get_response(url: str, dst_addr):
     print()
     # print(bytes().join(resp_data).decode('utf-8'))
 
+def URL_gen():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    urls_path = os.path.join(script_dir, "URLs.txt")
 
-ip_addr = resolve_ip(URL)
-print(f"resolved {URL} to {ip_addr}")
-get_response(URL, (ip_addr, 443))
+    if not os.path.isfile(urls_path):
+        raise FileNotFoundError(f"'URLs.txt' not found in the script directory: {script_dir}")
+
+    with open(urls_path, "r", encoding="utf-8") as f:
+        urls = f.read().splitlines()
+        for url in urls:
+            url = url.split("#")[0].strip()
+            if url:
+                yield url
+
+test_all = False
+def parse_args(argv):
+    global URL
+    global test_all
+
+    try:
+        opts, args = getopt.getopt(argv, "", ["help", "url=", "all"])
+    except getopt.GetoptError as err:
+        print(err)
+        usage()
+
+    for opt, arg in opts:
+        if opt == "--help":
+            usage()
+        elif opt == "--url":
+            URL = arg.split("#")[0].strip()
+        elif opt == "--all":
+            test_all = True
+
+    if test_all:
+        print("Testing all URLs in the predefined list...")
+    else:
+        print(f"Testing URL: {URL}")
+
+def test_url_worker(url, ip_addr, output_queue):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        try:
+            get_response(url, (ip_addr, 443))
+        except Exception as e:
+            print(f"ERROR: {e}")
+    output_queue.put(f.getvalue()) 
+
+if __name__ == "__main__":
+    parse_args(sys.argv[1:])
+    
+    if test_all:
+        success_list = []
+        failure_list = []
+
+        for url in URL_gen():
+            print(f"Testing URL: {url}")
+            try:
+                ip_addr = resolve_ip(url)
+                print(f"Resolved {url} to {ip_addr}")
+            except Exception as e:
+                print(f"DNS resolution failed: {e}")
+                failure_list.append(url)
+                continue
+
+            result_queue = multiprocessing.Queue()
+            p = multiprocessing.Process(
+                target=test_url_worker, 
+                args=(url, ip_addr, result_queue)
+            )
+            p.start()
+            p.join(timeout=5)
+
+            if p.is_alive():
+                print(f"[TIMEOUT] {url}")
+                p.terminate()
+                p.join()
+                failure_list.append(url)
+            else:
+                try:
+                    result = result_queue.get_nowait()
+                    print(f"Result for {url}: \n{result}")
+                    if SUCCESS_MARKER in result:
+                        success_list.append(url)
+                        print(f"Success: {url}")
+                    else:
+                        failure_list.append(url)
+                        print(f"Failure: {url} - {result}")
+                except Exception:
+                    failure_list.append(url)
+                    print(f"Failure: {url} - No output from process")
+
+            print("-" * 40)
+
+        print("\nSummary:")
+        print(f"Successful URLs: {len(success_list)}")
+        for url in success_list:
+            print(f"  - {url}")
+        print(f"Failed URLs: {len(failure_list)}")
+        for url in failure_list:
+            print(f"  - {url}")
+    else:
+        ip_addr = resolve_ip(URL)
+        print(f"resolved {URL} to {ip_addr}")
+        get_response(URL, (ip_addr, 443))
+

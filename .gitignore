@@ -16,3 +16,5 @@ rootCA.key
 rootCA.srl 
 
 .venv/
+
+aioquic_keylog

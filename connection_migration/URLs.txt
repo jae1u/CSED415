@@ -1,0 +1,17 @@
+https://cloudflare-ech.com/cdn-cgi/trace # not ok
+https://www.arxiv.org/ # ok
+https://www.google.com/ # ok
+https://quasar.kim/ # ok
+https://openai.com/ # not ok
+https://claude.ai/ # not ok
+https://namu.wiki/ # not ok - cloudflare
+https://www.instagram.com/ # not ok - migration disabled
+https://www.youtube.com/ # ok
+https://www.pinterest.com/ # ok
+https://golang.google.cn/ # ok
+https://github.com/ # not ok - no H3
+https://www.reddit.com/ # ok - with manual IP
+https://discord.com/ # not ok - cloudflare
+https://copilot.microsoft.com/ # not ok - unsupported
+https://www.wired.com/ # ok (not blocked)
+https://www.theguardian.com/international
