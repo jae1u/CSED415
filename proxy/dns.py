@@ -7,6 +7,8 @@ from scapy.layers.dns import DNS, DNSQR
 
 logger = logging.getLogger(__name__)
 
+cache: dict[str, str] = {}
+
 class DNSClientProtocol(asyncio.DatagramProtocol):
     def __init__(self, hostname: str, dns_server: tuple[str, int], answer_future: asyncio.Future):
         self.hostname = hostname
@@ -28,6 +30,12 @@ class DNSClientProtocol(asyncio.DatagramProtocol):
         self.answer_future.set_result(ip)
 
 async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tuple[str, int]) -> str:
+    # lookup cache before making request
+    if hostname in cache:
+        ip = cache[hostname]
+        logger.log(logging.DEBUG, f"resolved {hostname} to {ip} (cached)")
+        return ip
+    
     # create proxy socket for lookup
     sock = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.set_proxy(
@@ -45,6 +53,7 @@ async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tupl
 
     try:
         ip = await answer_future
+        cache[hostname] = ip
         logger.log(logging.DEBUG, f"resolved {hostname} to {ip}")
     finally:
         transport.close()

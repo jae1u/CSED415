@@ -186,7 +186,7 @@ def parse_args():
 
 if __name__ == "__main__":
     # enable logging
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     
     # set config
     args = parse_args()
