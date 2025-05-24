@@ -49,7 +49,7 @@ def handle_https(client_conn):
                         data = src.recv(4096)
                         if not data:
                             break
-                        print(f"[{direction}] {len(data)} bytes")
+                        print(f"[HTTPS {direction}] {len(data)} bytes")
                         dst.sendall(data)
                     except (ConnectionResetError, BrokenPipeError, OSError):
                         break
