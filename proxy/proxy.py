@@ -1,166 +1,214 @@
-import socket, ssl, threading
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import socket
+import ssl
+import threading
+from dataclasses import dataclass
+from itertools import count
+from http import HTTPStatus
 from certs import generate_cert
-from urllib.parse import urlparse
 
-PORT = 11556  # Proxy port
+@dataclass
+class Request_t:
+    method: str
+    url: str
+    header: dict
+    req_id: int
+    body: bytes
 
-def forward(src, dst, direction, shutdown_event, type: str):
-    try:
-        while not shutdown_event.is_set():
-            try:
-                data = src.recv(4096)
-                if not data:
-                    break
-                print(f"[{type} {direction}] {len(data)} bytes")
-                dst.sendall(data)
-            except (ConnectionResetError, BrokenPipeError, OSError):
+@dataclass
+class Response_t:
+    status_code: int
+    url: str
+    headers: dict
+    req_id: int
+    body: bytes
+
+def fetch(request: Request_t) -> Response_t:
+    """
+    Dummy fetch: 원 서버와 통신한다고 가정하여 200 OK 응답 반환
+    """
+    print(f"[fetch] Request {request.req_id}: {request.method} {request.url}")
+    body = f"Hello! You requested {request.url}\n".encode('utf-8')
+    headers = {
+        "Content-Type": "text/plain",
+        "Content-Length": str(len(body))
+    }
+    return Response_t(
+        status_code=200,
+        url=request.url,
+        headers=headers,
+        req_id=request.req_id,
+        body=body
+    )
+
+class ProxyHandler(threading.Thread):
+    """
+    클라이언트 연결 처리: HTTP 요청 파싱 -> fetch 호출 -> 응답 전송.
+    HTTPS의 경우 CONNECT 처리 후 TLS 구성.
+    """
+    req_counter = count(1)
+
+    def __init__(self, client_socket: socket.socket, address, certfile: str, keyfile: str):
+        super().__init__()
+        self.client_socket = client_socket
+        self.address = address
+        self.certfile = certfile
+        self.keyfile = keyfile
+        self.daemon = True
+        self.is_tls = False     # TLS 상태 확인
+        self.current_host = None
+
+    def run(self):
+        try:
+            self.handle_client()
+        except Exception as e:
+            print(f"[Error] {e}")
+        finally:
+            self.client_socket.close()
+
+    def handle_client(self):
+        conn = self.client_socket
+        while True:
+            data = self._recv_line(conn)
+            if not data:
                 break
-    except Exception as e:
-        print(f"[{type} {direction}] Forward error: {e}")
-    finally:
-        shutdown_event.set()
+            request_line = data.decode('utf-8').strip()
+            parts = request_line.split()
+            if len(parts) != 3:
+                break
+            method, path, version = parts
 
+            # 헤더 읽기
+            headers = {}
+            while True:
+                header_line = self._recv_line(conn)
+                if not header_line or header_line == b"\r\n":
+                    break
+                line = header_line.decode('utf-8')
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[key.strip()] = value.strip()
 
-def handle_https(client_conn):
-    tls_client_conn = None
-    tls_server_conn = None
-    try:
-        request_line = client_conn.recv(1024).decode(errors="ignore")
-        # parsing: CONNECT www.example.com:443 HTTP/1.1
-        target = request_line.split(" ")[1]
-        host, port = target.split(":") if ":" in target else (target, "443")
-        port = int(port)
-
-        client_conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-
-        # Generate certificate
-        key_path, cert_path = generate_cert(host)
-
-        print(f"[+] Using cert: {cert_path}, key: {key_path}")
-        # [CLIENT <---> PROXY] TLS handshake
-        try:
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-            tls_client_conn = context.wrap_socket(client_conn, server_side=True)
-            print(f"[+] TLS handshake success with {host}")
-        except Exception as e:
-            print(f"[-] TLS handshake failed: {e}")
-            return
-
-        # [PROXY <---> REMOTE SERVER] TLS handshake
-        try:
-            raw_sock = socket.create_connection((host, port))
-            tls_server_conn = ssl.create_default_context().wrap_socket(
-                raw_sock, server_hostname=host
-            )
-            print(f"[+] Connected to {host}:{port}")
-        except Exception as e:
-            print(f"[-] Failed to connect to remote server: {e}")
-            return
-
-        shutdown_event = threading.Event()
-
-        t1 = threading.Thread(
-            target=forward,
-            args=(tls_client_conn, tls_server_conn, "C→S", shutdown_event, "HTTPS"),
-        )
-        t2 = threading.Thread(
-            target=forward,
-            args=(tls_server_conn, tls_client_conn, "S→C", shutdown_event, "HTTPS"),
-        )
-
-        t1.start()
-        t2.start()
-
-        t1.join()
-        t2.join()
-
-    finally:
-        for sock in [tls_client_conn, tls_server_conn]:
-            if sock:
+            # CONNECT 처리 (HTTPS 터널링 시작)
+            if method.upper() == 'CONNECT':
+                host_port = path.split(':')
+                host = host_port[0]
+                port = int(host_port[1]) if len(host_port) > 1 else 443
+                self.current_host = host
+                conn.sendall(f"{version} 200 Connection Established\r\n\r\n".encode('utf-8'))
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                print(f"[TLS] Setting up TLS for {host}:{port} with cert {self.certfile} and key {self.keyfile}")
+                context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
                 try:
-                    sock.close()
-                except:
-                    pass
+                    tls_conn = context.wrap_socket(conn, server_side=True)
+                except Exception as e:
+                    print(f"[TLS] Handshake failed: {e}")
+                    break
+                conn = tls_conn
+                self.is_tls = True
+                continue
+
+            # 바디 읽기 (Content-Length 기반)
+            content_length = int(headers.get('Content-Length', 0))
+            body = b''
+            if content_length > 0:
+                remaining = content_length
+                while remaining > 0:
+                    chunk = conn.recv(min(4096, remaining))
+                    if not chunk:
+                        return
+                    body += chunk
+                    remaining -= len(chunk)
+
+            # 전체 URL 구성
+            url = path
+            if not url.lower().startswith('http'):
+                scheme = 'https' if self.is_tls else 'http'
+                host = headers.get('Host', '')
+                url = f"{scheme}://{host}{path}"
+
+            req_id = next(ProxyHandler.req_counter)
+            request = Request_t(method=method, url=url, header=headers, req_id=req_id, body=body)
+            response = fetch(request)
+
+            # 응답 전송
+            self._send_response(conn, response, version)
+
+            # 연결 유지 여부 판단 (Connection 헤더)
+            connection_header = headers.get('Connection', '').lower()
+            if version == 'HTTP/1.0' and connection_header != 'keep-alive':
+                break
+            if version == 'HTTP/1.1' and connection_header == 'close':
+                break
+
+    def _recv_line(self, conn: socket.socket) -> bytes:
+        """ CRLF 단위로 한 줄을 읽음 """
+        line = b''
+        while not line.endswith(b'\r\n'):
+            try:
+                chunk = conn.recv(1)
+            except Exception:
+                return b''
+            if not chunk:
+                return b''
+            line += chunk
+        return line
+
+    def _send_response(self, conn: socket.socket, response: Response_t, http_version: str):
+        """ Response_t를 기반으로 HTTP 응답 전송 """
+        status_text = HTTPStatus(response.status_code).phrase
+        status_line = f"{http_version} {response.status_code} {status_text}\r\n"
+        headers = {k.title(): v for k, v in response.headers.items()}
+        if 'Content-Length' not in headers:
+            headers['Content-Length'] = str(len(response.body))
+        header_lines = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
+        conn.sendall((status_line + header_lines + "\r\n").encode('utf-8'))
+        if response.body:
+            conn.sendall(response.body)
+
+class ProxyServer:
+    """
+    프록시 서버: 소켓 생성/리스닝 및 클라이언트 연결을 ProxyHandler로 처리.
+    """
+    def __init__(self, host: str, port: int, certfile: str, keyfile: str):
+        self.host = host
+        self.port = port
+        self.certfile = certfile
+        self.keyfile = keyfile
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(5)
+        print(f"Proxy listening on {self.host}:{self.port}")
+
+    def serve_forever(self):
         try:
-            client_conn.close()
-        except:
-            pass
+            while True:
+                client_sock, client_addr = self.server_socket.accept()
+                print(f"Connection from {client_addr}")
+                peeked = client_sock.recv(65535, socket.MSG_PEEK).decode(errors='ignore')
+                # print(f"Peeked data: {peeked[:50]}...")  # Peeked data for debugging
+                target = peeked.split(" ")[1]
+                host, port = target.split(":") if ":" in target else (target, 443)
+                print(f"Target host: {host}, port: {port}")
+                
+                cert, key = generate_cert(host)  # 도메인별 인증서 생성
+                print(f"Handling request for {host}:{port} with cert {cert} and key {key}")
 
-
-def handle_http(client_conn):
-    remote_sock = None
-    try:
-        request = client_conn.recv(65536)
-        request_line = request.split(b"\r\n", 1)[0].decode()
-        method, full_url, version = request_line.split()
-
-        url = urlparse(full_url)
-        host, port = url.hostname, url.port or 80
-        path = url.path or "/"
-
-        # Connect to the remote server
-        remote_sock = socket.create_connection((host, port))
-        print(f"[HTTP] Forwarding request to {host}:{port}")
-
-        # Modify request to use the path
-        request = request.replace(full_url.encode(), path.encode(), 1)
-        remote_sock.sendall(request)
-
-        shutdown_event = threading.Event()
-
-        t1 = threading.Thread(
-            target=forward,
-            args=(client_conn, remote_sock, "C→S", shutdown_event, "HTTP"),
-        )
-        t2 = threading.Thread(
-            target=forward,
-            args=(remote_sock, client_conn, "S→C", shutdown_event, "HTTP"),
-        )
-
-        t1.start()
-        t2.start()
-
-        t1.join()
-        t2.join()
-
-    finally:
-        for sock in [client_conn, remote_sock]:
-            if sock:
-                try:
-                    sock.close()
-                except:
-                    pass
-
-
-def handle_client(client_conn, addr):
-    try:
-        peeked = client_conn.recv(65536, socket.MSG_PEEK)
-        if peeked.startswith(b"CONNECT"):
-            handle_https(client_conn)
-        else:
-            handle_http(client_conn)
-    except Exception as e:
-        print(f"[!] Error handling client: {e}")
-        client_conn.close()
-    finally:
-        try:
-            client_conn.close()
-        except:
-            pass
-
-
-def main():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    s.bind(("0.0.0.0", PORT))
-    s.listen()
-    print(f"Proxy running on port {PORT}...")
-    while True:
-        conn, addr = s.accept()
-        threading.Thread(target=handle_client, args=(conn, addr)).start()
-
+                handler = ProxyHandler(client_sock, client_addr, key, cert)
+                handler.start()
+        except KeyboardInterrupt:
+            print("Proxy shutting down")
+        finally:
+            self.server_socket.close()
 
 if __name__ == "__main__":
-    main()
+    HOST = "127.0.0.1"
+    PORT = 11556
+    CERT_FILE = "rootCA.crt"  # 서버 인증서 경로
+    KEY_FILE = "rootCA.key"    # 서버 개인키 경로
+    proxy = ProxyServer(HOST, PORT, CERT_FILE, KEY_FILE)
+    proxy.serve_forever()
