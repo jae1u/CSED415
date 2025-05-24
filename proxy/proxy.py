@@ -4,7 +4,6 @@
 import socket
 import ssl
 import threading
-from dataclasses import dataclass
 from itertools import count
 from http import HTTPStatus
 from proxy.certs import generate_cert
@@ -100,16 +99,16 @@ class ProxyHandler(threading.Thread):
                 url = f"{scheme}://{host}{path}"
 
             req_id = next(ProxyHandler.req_counter)
+            headers = {k.encode(): v.encode() for k, v in headers.items()}
             request = Request_t(method=method, url=url, header=headers, req_id=req_id, body=body)
             response = fetch(request, ("localhost", 10808))
 
-            print("!!!")
+            # response 후처리
+            # transfer-encoding 헤더가 설정되어 있을 경우 브라우저에서 오류 발생
+            response.headers = {k: v for k, v in response.headers.items() if k.lower() != b'transfer-encoding'}
 
             # 응답 전송
             self._send_response(conn, response, version)
-
-            print("!!!!!!")
-
 
             # 연결 유지 여부 판단 (Connection 헤더)
             connection_header = headers.get('Connection', '').lower()
@@ -135,7 +134,7 @@ class ProxyHandler(threading.Thread):
         """ Response_t를 기반으로 HTTP 응답 전송 """
         status_text = HTTPStatus(response.status_code).phrase
         status_line = f"{http_version} {response.status_code} {status_text}\r\n"
-        headers = {k.title(): v for k, v in response.headers.items()}
+        headers = {k.decode(): v.decode() for k, v in response.headers.items()}
         if 'Content-Length' not in headers:
             headers['Content-Length'] = str(len(response.body))
         header_lines = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
@@ -163,15 +162,14 @@ class ProxyServer:
         try:
             while True:
                 client_sock, client_addr = self.server_socket.accept()
-                print(f"Connection from {client_addr}")
+                # print(f"Connection from {client_addr}")
                 peeked = client_sock.recv(65535, socket.MSG_PEEK).decode(errors='ignore')
                 # print(f"Peeked data: {peeked[:50]}...")  # Peeked data for debugging
                 target = peeked.split(" ")[1]
                 host, port = target.split(":") if ":" in target else (target, 443)
-                print(f"Target host: {host}, port: {port}")
-                
+                # print(f"Target host: {host}, port: {port}")
                 cert, key = generate_cert(host)  # 도메인별 인증서 생성
-                print(f"Handling request for {host}:{port} with cert {cert} and key {key}")
+                # print(f"Handling request for {host}:{port} with cert {cert} and key {key}")
 
                 handler = ProxyHandler(client_sock, client_addr, key, cert)
                 handler.start()

@@ -161,12 +161,17 @@ def quic_loop(
                 
                 # send GET request using stream
                 assert url.hostname is not None
+                if len(url.query) > 0:
+                    path = url.path + '?' + url.query
+                else:
+                    path = url.path
                 headers = {
                     b':method': req.method.encode(),
                     b':scheme': b'https',
                     b':authority': url.hostname.encode(),
-                    b':path': url.path.encode(),
-                    b'user-agent': b'curl/8.13.0',
+                    b':path': path.encode(),
+                    b'host': url.hostname.encode(),
+                    b'user-agent': b'snic/0.1',
                     b'accept': b'*/*',
                     **req.header
                 }

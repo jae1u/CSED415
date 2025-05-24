@@ -18,3 +18,4 @@ rootCA.srl
 .venv/
 
 aioquic_keylog
+keylog

@@ -7,6 +7,7 @@ from typing import cast
 from urllib.parse import urlparse
 from proxy.interface import Request, Response
 
+
 def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     print(f"> {req.method} {req.url}")
 
@@ -27,10 +28,19 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     conn = h11.Connection(our_role=h11.CLIENT)
 
     # send request
+    headers = {
+        b'Host': url.hostname.encode(),
+        b'User-Agent': b'snic/0.1',
+        b'Accept': b'*/*',
+        **req.header
+    }
+    target = url.path
+    if len(url.query) > 0:
+        target += '?' + url.query
     request = h11.Request(
         method=req.method,
-        headers=list(req.header.items()),
-        target=url.path
+        headers=list(headers.items()),
+        target=target
     )
     sock.sendall(conn.send(request))
     
@@ -67,5 +77,6 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
         body=bytes().join(body_parts)
     )
     print(f"< {res.status_code} {res.url}")
+
     return res
 
