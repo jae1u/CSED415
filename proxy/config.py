@@ -16,6 +16,7 @@ class Config:
     proxy_port: int = 10808
     fetch_adaptive_snic_timeout: int = 3
     fetch_adaptive_snic_works_override: dict[str, bool] = field(default_factory=dict)
+    dns_override: dict[str, str] = field(default_factory=dict)
 
 conf = Config()
 

@@ -8,6 +8,7 @@ import threading
 import logging
 from itertools import count
 from http import HTTPStatus
+from urllib.parse import urlparse
 from proxy import config
 from proxy.config import conf
 from proxy.certs import generate_cert
@@ -167,7 +168,11 @@ class ProxyServer:
                 client_sock, client_addr = self.server_socket.accept()
                 peeked = client_sock.recv(65535, socket.MSG_PEEK).decode(errors='ignore')
                 target = peeked.split(" ")[1]
-                host, port = target.split(":", 1) if ":" in target else (target, 443)
+                url = urlparse(target)
+                if url.hostname is None:
+                    host, port = target.split(":", 1) if ":" in target else (target, 443)
+                else:
+                    host, port = (url.hostname, url.port) if url.port else (url.hostname, 443)
                 cert, key = generate_cert(host)  # 도메인별 인증서 생성
                 handler = ProxyHandler(client_sock, client_addr, key, cert)
                 handler.start()

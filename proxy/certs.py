@@ -12,7 +12,7 @@ def generate_cert(domain):
     config_path = f"proxy/certs/{domain}.cnf"
     if os.path.exists(crt_path):
         return key_path, crt_path
-    os.makedirs("certs", exist_ok=True)
+    os.makedirs("proxy/certs", exist_ok=True)
 
     # Generate config file
     template = Template("""

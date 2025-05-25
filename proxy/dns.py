@@ -4,6 +4,8 @@ import socket
 import socks
 from scapy.layers.dns import DNS, DNSQR
 
+from proxy.config import conf
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,11 @@ class DNSClientProtocol(asyncio.DatagramProtocol):
         self.answer_future.set_result(ip)
 
 async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tuple[str, int]) -> str:
+    if hostname in conf.dns_override:
+        ip = conf.dns_override[hostname]
+        logger.log(logging.DEBUG, f"resolved {hostname} to {ip} (overrided)")
+        return ip
+    
     # lookup cache before making request
     if hostname in cache:
         ip = cache[hostname]
