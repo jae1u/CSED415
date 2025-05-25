@@ -1,0 +1,81 @@
+https://cloudflare-ech.com/cdn-cgi/trace # not ok
+https://www.arxiv.org/ # ok
+https://www.google.com/ # ok
+https://quasar.kim/ # ok
+https://openai.com/ # not ok
+https://claude.ai/ # not ok
+https://namu.wiki/ # not ok - cloudflare
+https://www.instagram.com/ # not ok - migration disabled
+https://www.youtube.com/ # ok
+https://www.pinterest.com/ # ok
+https://golang.google.cn/ # ok
+https://github.com/ # not ok - no H3
+https://www.reddit.com/ # ok - with manual IP
+https://discord.com/ # not ok - cloudflare
+https://copilot.microsoft.com/ # not ok - unsupported
+https://www.wired.com/ # ok (not blocked)
+https://www.theguardian.com/international
+https://google.com/
+https://youtube.com/
+https://facebook.com/
+https://instagram.com/
+https://x.com/
+https://whatsapp.com/
+https://wikipedia.org/
+https://reddit.com/
+https://yahoo.co.jp/
+https://yahoo.com/
+https://yandex.ru/
+https://tiktok.com/
+https://amazon.com/
+https://baidu.com/
+https://kto.bet.br/
+https://linkedin.com/
+https://pornhub.com/
+https://netflix.com/
+https://naver.com/
+https://live.com/
+https://dzen.ru/
+https://office.com/
+https://bing.com/
+https://temu.com/
+https://pinterest.com/
+https://bilibili.com/
+https://xvideos.com/
+https://microsoft.com/
+https://twitch.tv/
+https://xhamster.com/
+https://vk.com/
+https://mail.ru/
+https://news.yahoo.co.jp/
+https://sharepoint.com/
+https://fandom.com/
+https://globo.com/
+https://canva.com/
+https://weather.com/
+https://samsung.com/
+https://t.me/
+https://duckduckgo.com/
+https://openai.com/
+https://xnxx.com/
+https://nytimes.com/
+https://stripchat.com/
+https://zoom.us/
+https://aliexpress.com/
+https://roblox.com/
+https://quora.com/
+https://ebay.com/
+https://cnn.com/
+https://bbc.com/
+https://espn.com/
+https://adobe.com/
+https://stackoverflow.com/
+https://wordpress.com/
+https://paypal.com/
+https://imgur.com/
+https://dropbox.com/
+https://spotify.com/
+https://whatsapp.net/
+https://apple.com/
+https://indeed.com/
+https://tumblr.com/
