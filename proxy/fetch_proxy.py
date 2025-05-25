@@ -2,15 +2,18 @@ import asyncio
 import ssl
 import socks
 import h11
-from proxy import dns
 from typing import cast
 from urllib.parse import urlparse
 
+from proxy import dns, stat
 from proxy.config import conf
 from proxy.interface import Request, Response
 
 
 def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
+    total_sent = 0
+    total_received = 0
+    
     # resolve hostname into ip
     url = urlparse(req.url)
     assert url.hostname is not None
@@ -44,15 +47,21 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
         headers=list(headers.items()),
         target=target
     )
-    sock.sendall(conn.send(request))
+    data = conn.send(request)
+    sock.sendall(data)
+    total_sent += len(data)
     
     # send request body if exists
     if req.body is not None:
         body = h11.Data(req.body)
-        sock.sendall(conn.send(body))
+        data = conn.send(body)
+        sock.sendall(data)
+        total_sent += len(data)
     
     # end of request
-    sock.sendall(conn.send(h11.EndOfMessage()))
+    data = conn.send(h11.EndOfMessage())
+    sock.sendall(data)
+    total_sent += len(data)
 
     # receive response
     response = None
@@ -60,7 +69,9 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     while True:
         event = conn.next_event()
         if event is h11.NEED_DATA:
-            conn.receive_data(sock.recv(1024))
+            data = sock.recv(65535)
+            total_received += len(data)
+            conn.receive_data(data)
         elif isinstance(event, h11.Response):
             response = event
         elif isinstance(event, h11.Data):
@@ -78,5 +89,8 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
         req_id=req.req_id,
         body=bytes().join(body_parts)
     )
+
+    stat.increase_total_received_proxy(total_received)
+    stat.increase_total_sent_proxy(total_sent)
     return res
 

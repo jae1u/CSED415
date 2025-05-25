@@ -1,0 +1,6 @@
+[dns_override]
+"assets.guim.co.uk" = "146.75.49.111"
+"i.guim.co.uk" = "146.75.49.111"
+"sourcepoint.theguardian.com" = "146.75.49.111"
+"www.theguardian.com" = "146.75.49.111"
+"static.guim.co.uk" = "146.75.49.111"

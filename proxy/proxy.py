@@ -9,7 +9,7 @@ import logging
 from itertools import count
 from http import HTTPStatus
 from urllib.parse import urlparse
-from proxy import config
+from proxy import config, stat
 from proxy.config import conf
 from proxy.certs import generate_cert
 from proxy.interface import Request as Request_t, Response as Response_t
@@ -124,6 +124,8 @@ class ProxyHandler(threading.Thread):
                 break
             if version == 'HTTP/1.1' and connection_header == 'close':
                 break
+
+            stat.log_stats()
 
     def _recv_line(self, conn: socket.socket) -> bytes:
         """ CRLF 단위로 한 줄을 읽음 """

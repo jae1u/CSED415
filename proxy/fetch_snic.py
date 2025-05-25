@@ -13,7 +13,7 @@ import aioquic.h3.events
 import queue
 from typing import Optional, cast
 
-from proxy import dns
+from proxy import dns, stat
 from proxy.config import conf
 from proxy.interface import Request, Response
 
@@ -60,13 +60,19 @@ def quic_loop(
     migrated = False
     resp_map: dict[int, Response] = {}  # key: stream ID, value: response
     req_map: dict[int, Request] = {}    # key: stream ID, value: request
+    total_sent_proxy = 0
+    total_received_proxy = 0
+    total_sent_without_proxy = 0
+    total_received_without_proxy = 0
     while not terminated:
         # transmit data
         for data, addr in quic_conn.datagrams_to_send(now=time()):
             if migrated:
                 sock.sendto(data, addr)
+                total_sent_without_proxy += len(data)
             else:
                 sock_proxy.sendto(data, addr)
+                total_sent_proxy += len(data)
 
         # re-arm timer
         t = quic_conn.get_timer()
@@ -137,6 +143,7 @@ def quic_loop(
             data, addr = sock_proxy.recvfrom(65535)
 
             if data:
+                total_received_proxy += len(data)
                 quic_conn.receive_datagram(data, addr, now=time())
         except BlockingIOError:
             pass
@@ -146,6 +153,7 @@ def quic_loop(
             data, addr = sock.recvfrom(65535)
             
             if data:
+                total_received_without_proxy += len(data)
                 quic_conn.receive_datagram(data, addr, now=time())
         except BlockingIOError:
             pass
@@ -200,6 +208,10 @@ def quic_loop(
             terminated = True
 
     logging.debug(f"{hostname}: QUIC loop terminated")
+    stat.increase_total_sent_proxy(total_sent_proxy)
+    stat.increase_total_received_proxy(total_received_proxy)
+    stat.increase_total_sent_snic(total_sent_without_proxy)
+    stat.increase_total_received_snic(total_received_without_proxy)
 
 class SNICConnection:
     def __init__(self, hostname: str, dst_addr: tuple[str, int], proxy_addr: tuple[str, int]):

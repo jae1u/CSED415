@@ -4,6 +4,7 @@ import socket
 import socks
 from scapy.layers.dns import DNS, DNSQR
 
+from proxy import stat
 from proxy.config import conf
 
 
@@ -17,17 +18,21 @@ class DNSClientProtocol(asyncio.DatagramProtocol):
         self.dns_server = dns_server
         self.answer_future = answer_future
         self.transport = None
+        self.total_sent = 0
+        self.total_received = 0
 
     def connection_made(self, transport):
         self.transport = transport
 
         # send DNS query packet
         query_pkt = DNS(rd=1, qd=DNSQR(qname=self.hostname, qtype="A"))
+        self.total_sent += len(bytes(query_pkt))
         transport.sendto(bytes(query_pkt), self.dns_server)
 
     def datagram_received(self, data, addr):
         assert addr == self.dns_server
         answer_pkt = DNS(data)
+        self.total_received += len(data)
         ip = [a for a in answer_pkt.an if a.type == 1][0].rdata
         self.answer_future.set_result(ip)
 
@@ -53,7 +58,7 @@ async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tupl
 
     loop = asyncio.get_running_loop()
     answer_future = loop.create_future()
-    transport, _ = await loop.create_datagram_endpoint(
+    transport, protocol = await loop.create_datagram_endpoint(
         lambda: DNSClientProtocol(hostname=hostname, dns_server=dns_server, answer_future=answer_future),
         sock=sock
     )
@@ -64,4 +69,6 @@ async def resolve(hostname: str, dns_server: tuple[str, int], proxy_config: tupl
         logger.log(logging.DEBUG, f"resolved {hostname} to {ip}")
     finally:
         transport.close()
+        stat.increase_total_sent_proxy(protocol.total_sent)
+        stat.increase_total_received_proxy(protocol.total_received)
     return ip
