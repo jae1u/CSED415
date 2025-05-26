@@ -40,10 +40,10 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
     # check if host is already checked
     if (use_snic := check_snic_works(url.hostname)) is not None:
         if use_snic:
-            logger.log(logging.DEBUG, f"{url.hostname}: using SNIC (already checked)")
+            logger.log(logging.INFO, f"{url.hostname}: using SNIC (already checked)")
             return fetch_snic(req, proxy_config)
         else:
-            logger.log(logging.DEBUG, f"{url.hostname}: using proxy (already checked)")
+            logger.log(logging.INFO, f"{url.hostname}: using proxy (already checked)")
             return fetch_proxy(req, proxy_config)
     
     # try SNIC
@@ -57,7 +57,7 @@ def fetch(req: Request, proxy_config: tuple[str, int]) -> Response:
         timeout -= time() - start
         if asyncio.run(conn.check_migration(timeout)):
             # use SNIC to fetch result
-            logger.log(logging.DEBUG, f"{url.hostname}: path migration successful, using SNIC")
+            logger.log(logging.INFO, f"{url.hostname}: path migration successful, using SNIC")
             record_snic_works(url.hostname, True)
             res = asyncio.run(conn.fetch(req))
             assert isinstance(res, Response)
